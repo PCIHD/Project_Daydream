@@ -1,2 +1,16 @@
 certifi==2020.6.20
+cffi==1.14.3
+mkl-fft==1.2.0
+mkl-random==1.1.1
+mkl-service==2.3.0
+numpy
+olefile==0.46
+Pillow
+pycparser==2.20
+PySoundFile==0.9.0.post1
+six==1.15.0
+torch==1.7.0
+torchaudio==0.7.0
+torchvision==0.8.1
+typing-extensions
 wincertstore==0.2
