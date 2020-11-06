@@ -3,7 +3,7 @@ layers and blocks file
 '''
 import torch
 from torch import nn
-from torch.nn import Functional as F
+from torch.nn import functional as F
 import numpy as np
 
 
@@ -69,7 +69,7 @@ class DiscriminatorFeature(nn.Module):
 
 
 class SGNNLayerDiscriminator(nn.Module):
-    def __init__(self, input_nc, opt, ndf=64, n_layers=3, norm_layer=nn.InstanceNorm2d, use_sigmoid=False,
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.InstanceNorm2d, use_sigmoid=False,
                  getIntermFeat=False):
         super(SGNNLayerDiscriminator, self).__init__()
         self.ConditionFeature = DiscriminatorFeature(input_nc=48, ndf=64, n_layers=3, norm_layer=nn.InstanceNorm2d,
@@ -77,7 +77,7 @@ class SGNNLayerDiscriminator(nn.Module):
                                                      getIntermFeat=False)
         self.getIntermFeat = getIntermFeat
         self.n_layers = n_layers
-        self.ngpu = len(opt.gpu_ids)
+
 
         kw = 4
         padw = int(np.ceil((kw - 1.0) / 2))
@@ -148,7 +148,7 @@ class SGNNLayerDiscriminator(nn.Module):
 
 
 class SGNResidualBlock(nn.Module):
-    def __init__(self):
+    def __init__(self,opt):
             super(SGNResidualBlock, self).__init__()
             self.encoder = nn.Sequential(
                 nn.Conv2d(512 + 40, 512, 3, padding=1, bias=False),
@@ -157,6 +157,7 @@ class SGNResidualBlock(nn.Module):
                 nn.Conv2d(512, 512, 3, padding=1, bias=False),
                 nn.InstanceNorm2d(512)
             )
+            ngpu = len(opt.gpu_ids)
 
     def forward(self, seg_feat, att):
             att = att.unsqueeze(-1).unsqueeze(-1)
