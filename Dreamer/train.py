@@ -8,9 +8,9 @@ import argparse
 import os
 import torch
 from .dataloader import SGNDataset
-from torch import data
+
 from .Model import create_model, PerceptualLoss, GANLoss
-from .Sceneparser import
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--img_root', type=str, required=True,
