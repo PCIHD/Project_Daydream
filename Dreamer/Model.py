@@ -35,11 +35,11 @@ class SGNGenerator(nn.Module):
 
         )
 
-        self.res_block1 = SGNResidualBlock()
-        self.res_block2 = SGNResidualBlock()
-        self.res_block3 = SGNResidualBlock()
-        self.res_block4 = SGNResidualBlock()
-        self.res_block5 = SGNResidualBlock()
+        self.res_block1 = SGNResidualBlock(opt)
+        self.res_block2 = SGNResidualBlock(opt)
+        self.res_block3 = SGNResidualBlock(opt)
+        self.res_block4 = SGNResidualBlock(opt)
+        self.res_block5 = SGNResidualBlock(opt)
 
         self.decoder = nn.Sequential(
             nn.ConvTranspose2d(512, 256, kernel_size=3, stride=2, padding=1, output_padding=1),
@@ -90,7 +90,7 @@ class SGNGenerator(nn.Module):
 
 
 class MultiscaleDiscriminator(nn.Module):
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.InstanceNorm2d,
+    def __init__(self, input_nc,opt, ndf=64, n_layers=3, norm_layer=nn.InstanceNorm2d,
                      use_sigmoid=False, num_D=3, getIntermFeat=False):
             super(MultiscaleDiscriminator, self).__init__()
             self.num_D = num_D
@@ -98,7 +98,7 @@ class MultiscaleDiscriminator(nn.Module):
             self.getIntermFeat = getIntermFeat
 
             for i in range(num_D):
-                netD = SGNNLayerDiscriminator(input_nc, ndf, n_layers, norm_layer, use_sigmoid, getIntermFeat)
+                netD = SGNNLayerDiscriminator(input_nc, opt ,ndf,n_layers, norm_layer, use_sigmoid, getIntermFeat)
                 if getIntermFeat:
                     for j in range(n_layers + 2):
                         setattr(self, 'scale' + str(i) + '_layer' + str(j), getattr(netD, 'model' + str(j)))
@@ -217,5 +217,5 @@ class GANLoss(nn.Module):
 def create_model(args):
     ngpu = len(args.gpu_ids)
     G = SGNGenerator(args)
-    D = MultiscaleDiscriminator()
+    D = MultiscaleDiscriminator(input_nc=3,opt=args)
     return G,D

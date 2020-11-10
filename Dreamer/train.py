@@ -7,9 +7,12 @@ handels training image to image translation training loop
 import argparse
 import os
 import torch
-from .dataloader import SGNDataset
+from torch.utils import data
+import torch
+import random
+from dataloader import SGNDataset
 
-from .Model import create_model, PerceptualLoss, GANLoss
+from Model import create_model, PerceptualLoss, GANLoss
 
 
 parser = argparse.ArgumentParser()
@@ -35,7 +38,8 @@ parser.add_argument('--resume_train', action='store_true',
 parser.add_argument('--manualSeed', type=int,
                     help='manual seed')
 
-
+parser.add_argument('--gpu_ids', type=str, default='0',
+                    help='gpu ids: e.g. 0  0,1,2, 0,2. use -1 for CPU')
 # Scene Parsing Model related arguments
 parser.add_argument('--scene_parsing_model_path', required=True,
                     help='folder to model path')
@@ -49,14 +53,28 @@ parser.add_argument('--fc_dim', default=2048, type=int,
 args = parser.parse_args()
 args.weights_encoder = os.path.join(args.scene_parsing_model_path, 'encoder' + args.suffix)
 args.weights_decoder = os.path.join(args.scene_parsing_model_path, 'decoder' + args.suffix)
-if not torch.cuda.is_avialable():
-    print('No Gpu avialable')
-    device='cpu'
+
+
+#check for gpu
+
+if  torch.cuda.is_available():
+    print('Gpu avialable')
+    device='cuda'
 else:
-    device="cuda"
+    print('Gpu not  avialable')
+    device="cpu"
 
-
-if __name__=='__main':
+#randomize seed
+if args.manualSeed is None:
+    args.manualSeed = random.randint(1, 100000)
+#handeling for multiple gpus
+gpu_ids = []
+for str_id in args.gpu_ids.split(','):
+    id = int(str_id)
+    if id >= 0:
+        gpu_ids.append(id)
+args.gpu_ids = gpu_ids
+if __name__=='__main__':
     print('loading Dataset')
     train_data = SGNDataset(args)
     train_loader = data.DataLoader(train_data,batch_size=args.batch_size,
@@ -82,6 +100,20 @@ if __name__=='__main':
         D.load_state_dict(torch.load(args.save_filename+"_D_latest"))
     criterionGan = GANLoss(use_lsgan=True)
     criterionFeat = torch.nn.L1Loss()
-    criterionPercept =  PerceptualLoss(args.gpu_ids,args)
+    criterionPercept =  PerceptualLoss(args)
+    G.to(device)
+    D.to(device)
+    g_optimizer = torch.optim.Adam(G.parameters(),lr=args.learning_rate,betas = (args.momentum,0.999))
+    d_optimizer = torch.optim.Adam(D.parameters(), lr=args.learning_rate, betas=(args.momentum, 0.999))
+    if not os.path.isdir('./examples'):
+        os.mkdir('./examples')
+    if not os.path.isdir('./model'):
+        os.mkdir('./model')
+    for epoch in range(start_epoch,args.num_epochs):
+        #todo write training loop
+    #todo figure out a way to download resnet model in required folder
+        
+
+
 
 

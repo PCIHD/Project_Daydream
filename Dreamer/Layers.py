@@ -69,10 +69,10 @@ class DiscriminatorFeature(nn.Module):
 
 
 class SGNNLayerDiscriminator(nn.Module):
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.InstanceNorm2d, use_sigmoid=False,
+    def __init__(self, input_nc,opt ,ndf=64, n_layers=3, norm_layer=nn.InstanceNorm2d, use_sigmoid=False,
                  getIntermFeat=False):
         super(SGNNLayerDiscriminator, self).__init__()
-        self.ConditionFeature = DiscriminatorFeature(input_nc=48, ndf=64, n_layers=3, norm_layer=nn.InstanceNorm2d,
+        self.ConditionFeature = DiscriminatorFeature(input_nc=48,opt=opt, ndf=64, n_layers=3, norm_layer=nn.InstanceNorm2d,
                                                      use_sigmoid=False,
                                                      getIntermFeat=False)
         self.getIntermFeat = getIntermFeat

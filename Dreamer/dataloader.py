@@ -2,8 +2,7 @@
 todo implement dataloader  ADE20K dataset
 '''
 
-from skimage import io, transform
-import os
+
 import numpy as np
 from PIL import Image
 import torch
@@ -19,7 +18,7 @@ class SGNDataset(data.Dataset):
     def __init__(self, args):
         super(SGNDataset, self).__init__()
         self.img_root = args.img_root
-        self.isEnhancer = args.isEnhancer
+
         self.image_list = open(self.img_root + "/train_images.txt").readlines()
         self.attribute_list = open(self.img_root + "/train_attributes.txt").readlines()
         self.segmentation_list = open(self.img_root + "/train_segmentations.txt").readlines()
