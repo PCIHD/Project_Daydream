@@ -183,7 +183,7 @@ if __name__=='__main__':
             #calculate loss for real image with mismatch segmask and attributes
 
             real_m_logit = D(img_norm,nnseg,att)
-            real_m_loss = 0.25 * criterionGan(real_logit,False)
+            real_m_loss = 0.25 * criterionGan(real_m_logit,False)
             avg_D_real_m_loss += real_m_loss.data.item()
             real_m_loss.backward()
 
