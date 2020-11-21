@@ -6,14 +6,16 @@ handels training image to image translation training loop
 '''
 import argparse
 import os
+
+import numpy as np
 import torch
 from torch.utils import data
 import torch
 import random
 from dataloader import SGNDataset
-
+import torch.autograd.variable as Variable
 from Model import create_model, PerceptualLoss, GANLoss
-
+from torchvision.utils import save_image
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--img_root', type=str, required=True,
@@ -74,7 +76,38 @@ for str_id in args.gpu_ids.split(','):
     if id >= 0:
         gpu_ids.append(id)
 args.gpu_ids = gpu_ids
+
+#set gradient calculations
+def requires_grad(model, flag=True):
+    for p in model.parameters():
+        p.requires_grad = flag
+
+
+#create input vector
+def init_z_foreach_layout(category_map, batchsize):
+    numofseg = 150
+
+    ZT = torch.FloatTensor(batchsize, 100, 256, 256)
+    ZT.fill_(0.0)
+    ZT = ZT.cuda()
+
+    for j in range(numofseg + 1):
+
+        mask = category_map.eq(j)
+
+        if (mask.any()):
+            z = torch.rand(batchsize, 100, 1, 1).cuda()
+            z.resize_(batchsize, 100, 1, 1).normal_(0, 1)
+            z = z.expand(batchsize, 100, 256, 256)
+            mask = mask.unsqueeze(1)
+            mask = mask.type(torch.FloatTensor)
+            ZT = ZT.add_(z * mask.cuda())
+
+    del mask, z, category_map
+    return ZT
+
 if __name__=='__main__':
+    print(args)
     print('loading Dataset')
     train_data = SGNDataset(args)
     train_loader = data.DataLoader(train_data,batch_size=args.batch_size,
@@ -110,9 +143,111 @@ if __name__=='__main__':
     if not os.path.isdir('./model'):
         os.mkdir('./model')
     for epoch in range(start_epoch,args.num_epochs):
+        avg_D_real_loss = 0
+        avg_D_real_m_loss = 0
+        avg_D_real_m2_loss = 0
+        avg_D_fake_loss = 0
+        avg_G_fake_loss = 0
+        avg_percept_loss = 0
+        for i ,(img,att,seg,cat,nnseg) in enumerate(train_loader):
+            bs = img.size(0)
+            rnd_batch_num = np.random.randint(len(train_data),size=bs)
+            rnd_att_list = [train_data[i][1] for i in rnd_batch_num]
+            rnd_att_np = np.asarray(rnd_att_list)
+            rnd_att = torch.from_numpy(rnd_att_np).float()
+
+            #convert images to tensors and send to gpu
+            seg = seg.type(torch.FloatTensor)
+            nnseg = nnseg.type(torch.FloatTensor)
+            img = Variable(img.cuda())
+            att = Variable(att.cuda())
+            rnd_att = Variable(rnd_att.cuda())
+            seg = Variable(seg.cuda())
+            nnseg = Variable(nnseg.cuda())
+            cat = Variable(cat.cuda())
+            Z = init_z_foreach_layout(cat, bs)
+
+            img_norm = img * 2 - 1
+            img_G = img_norm
+
+            requires_grad(G, False)
+            requires_grad(D, True)
+            D.zero_grad()
+
+            #calculate loss for real image with segmask and attributes
+            real_logit = D(img_norm,seg,att)
+            real_loss = criterionGan(real_logit,True)
+            avg_D_real_loss+=real_loss.data.item()
+            real_loss.backward()
+
+            #calculate loss for real image with mismatch segmask and attributes
+
+            real_m_logit = D(img_norm,nnseg,att)
+            real_m_loss = 0.25 * criterionGan(real_logit,False)
+            avg_D_real_m_loss += real_m_loss.data.item()
+            real_m_loss.backward()
+
+            # real image with mismatching attribute and accurate segmask
+            real_m2_logit = D(img_norm, seg, rnd_att)
+            real_m2_loss = 0.25 * criterionGan(real_m2_logit, False)
+            avg_D_real_m2_loss += real_m2_loss.data.item()
+            real_m2_loss.backward()
+
+
+            #now for the majedaar stuff generating image
+
+                #prepare nn for fake images
+
+            fake = G(Z, seg, att)
+            fake_logit = D(fake.detach(), seg, att)
+            fake_loss = 0.5 * criterionGan(fake_logit, False)
+            avg_D_fake_loss += fake_loss.data.item()
+            fake_loss.backward()
+#prep to train generator
+            d_optimizer.step()
+
+            requires_grad(G, True)
+            requires_grad(D, False)
+            G.zero_grad()
+
+            fake = G(Z, seg, att)
+            fake_logit = D(fake, seg, att)
+            fake_loss = criterionGan(fake_logit, True)
+            # vgg_loss =10 * criterionVGG(img_G, fake)
+            percept_loss = 10 * criterionPercept(img_G, fake)
+            avg_G_fake_loss += fake_loss.data.item()
+            # avg_vgg_loss += vgg_loss.data.item()
+            avg_percept_loss += percept_loss.data.item()
+            G_loss = fake_loss + percept_loss
+            G_loss.backward()
+            g_optimizer.step()
+
+            if i % 10 == 0:
+                print(
+                    'Epoch [%d/%d], Iter [%d/%d], D_real: %.4f, D_misSeg: %.4f, D_misAtt: %.4f, D_fake: %.4f, G_fake: %.4f, Percept: %.4f'
+                    % (epoch + 1, args.num_epochs, i + 1, len(train_loader), avg_D_real_loss / (i + 1),
+                       avg_D_real_m_loss / (i + 1), avg_D_real_m2_loss / (i + 1), avg_D_fake_loss / (i + 1),
+                       avg_G_fake_loss / (i + 1),
+                       avg_percept_loss / (i + 1)))
+                save_image((fake.data + 1) * 0.5, './examples/%d_fake.png' % (epoch + 1))
+                save_image((img_G.data + 1) * 0.5, './examples/%d_real.png' % (epoch + 1))
+                torch.save(G.state_dict(), args.save_filename + "_G_latest")
+                torch.save(D.state_dict(), args.save_filename + "_D_latest")
+                log_file = open("log.txt", "w")
+                log_file.write(str(epoch) + " " + str(i))
+                log_file.close()
+        if (epoch + 1) % 10 == 0:
+            torch.save(G.state_dict(), args.save_filename + "_G_" + str(epoch))
+            torch.save(D.state_dict(), args.save_filename + "_D_" + str(epoch))
+
+
+
+
+
+
         #todo write training loop
     #todo figure out a way to download resnet model in required folder
-        
+
 
 
 

@@ -77,6 +77,7 @@ class SGNNLayerDiscriminator(nn.Module):
                                                      getIntermFeat=False)
         self.getIntermFeat = getIntermFeat
         self.n_layers = n_layers
+        self.ngpu  = len(opt.gpu_ids)
 
 
         kw = 4
@@ -157,7 +158,7 @@ class SGNResidualBlock(nn.Module):
                 nn.Conv2d(512, 512, 3, padding=1, bias=False),
                 nn.InstanceNorm2d(512)
             )
-            ngpu = len(opt.gpu_ids)
+            self.ngpu = len(opt.gpu_ids)
 
     def forward(self, seg_feat, att):
             att = att.unsqueeze(-1).unsqueeze(-1)

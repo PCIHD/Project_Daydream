@@ -38,7 +38,7 @@ class SGNDataset(data.Dataset):
                 'nnseg': self.img_root + self.nnsegmentation_list[i][:-1]
             })
             i = i + 1
-            print(str(i) + " of" + str(len(images)) + "\n")
+            #print(str(i) + " of" + str(len(images)) + "\n")
         return output
 
     def _colorencode(self, category_im):
@@ -89,14 +89,14 @@ class SGNDataset(data.Dataset):
         image = crop(image)
         seg = crop(seg)
         nnseg = crop(nnseg)
-        if not self.isEnhancer:
+
             # Resize
-            resize2 = transforms.Resize(256)
-            image = resize2(image)
-            resize2 = transforms.Resize(256, interpolation=PIL.Image.NEAREST)
-            seg = resize2(seg)
-            resize2 = transforms.Resize(256, interpolation=PIL.Image.NEAREST)
-            nnseg = resize2(nnseg)
+        resize2 = transforms.Resize(256)
+        image = resize2(image)
+        resize2 = transforms.Resize(256, interpolation=PIL.Image.NEAREST)
+        seg = resize2(seg)
+        resize2 = transforms.Resize(256, interpolation=PIL.Image.NEAREST)
+        nnseg = resize2(nnseg)
 
         # Random horizontal flipping
         if random.random() > 0.5:
