@@ -3,16 +3,30 @@ import {render} from "react-dom";
 
 
 
-function App() {
-  return (
-    <div className="App">
-      <h1>Let's Start DayDreaming</h1>
-      <Draw />
-    </div>
-  );
+class App extends Component{
+    constructor(props) {
+        super(props);
+        this.state = {
+            data:[],
+            loaded:false,
+            placeholder:'Loading'
+        };
+    }
+
+      render() {
+    return (
+        <div>
+            <h1>Dream</h1>
+
+        </div>
+
+
+
+
+    );
+  }
+
 }
-
-
 
 
 export default App;

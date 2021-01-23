@@ -6,8 +6,8 @@ from torch import nn
 from torch.autograd import Variable
 
 #Generator class
-from Dreamer.Layers import init_weights, SGNNLayerDiscriminator, SGNResidualBlock
-from Dreamer.Sceneparser import ModelBuilder
+from Layers import init_weights, SGNNLayerDiscriminator, SGNResidualBlock
+from Sceneparser import ModelBuilder
 
 
 class SGNGenerator(nn.Module):

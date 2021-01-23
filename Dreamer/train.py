@@ -51,6 +51,8 @@ parser.add_argument('--arch_encoder', default='resnet34_dilated8',
                     help="architecture of net_encoder")
 parser.add_argument('--fc_dim', default=2048, type=int,
                     help='number of features between encoder and decoder')
+parser.add_argument('--r', default=False, type=bool,
+                    help='check resume')
 
 args = parser.parse_args()
 args.weights_encoder = os.path.join(args.scene_parsing_model_path, 'encoder' + args.suffix)
@@ -113,7 +115,10 @@ if __name__=='__main__':
     train_loader = data.DataLoader(train_data,batch_size=args.batch_size,
                                    shuffle=True,num_workers = args.num_threads)
     print('Connecting nodes , fabicrating network')
-    G, D = create_model(args)
+    if(not args.r):
+        G, D = create_model(args)
+    else:
+        G,D = torch.load( args.save_filename + "_G_latest" ) , torch.save( args.save_filename + "_D_latest" )
     start_epoch = 0
     if(args.resume_train):
         rf = open('log.txt','r')
@@ -239,6 +244,9 @@ if __name__=='__main__':
         if (epoch + 1) % 10 == 0:
             torch.save(G.state_dict(), args.save_filename + "_G_" + str(epoch))
             torch.save(D.state_dict(), args.save_filename + "_D_" + str(epoch))
+            torch.save(G.state_dict(), args.save_filename + "_G_latest" )
+            torch.save(D.state_dict(), args.save_filename + "_D_latest" )
+
 
 
 
