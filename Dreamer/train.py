@@ -165,99 +165,110 @@ if __name__=='__main__':
     if not os.path.isdir('./model'):
         os.mkdir('./model')
     loop = asyncio.get_event_loop()
-    for epoch in range(start_epoch,args.num_epochs):
-        avg_D_real_loss = 0
-        avg_D_real_m_loss = 0
-        avg_D_real_m2_loss = 0
-        avg_D_fake_loss = 0
-        avg_G_fake_loss = 0
-        avg_percept_loss = 0
-        for i ,(img,att,seg,cat,nnseg) in enumerate(train_loader):
-            bs = img.size(0)
-            rnd_batch_num = np.random.randint(len(train_data),size=bs)
-            rnd_att_list = [train_data[i][1] for i in rnd_batch_num]
-            rnd_att_np = np.asarray(rnd_att_list)
-            rnd_att = torch.from_numpy(rnd_att_np).float()
+    with torch.profiler.profile(
+            schedule=torch.profiler.schedule(
+                wait=1,
+                warmup=1,
+                active=3,
+                repeat=1),
+            on_trace_ready=torch.profiler.tensorboard_trace_handler("./tensorboard_logs"),
+            with_stack=True,record_shapes=True,
+    ) as profiler:
+        for epoch in range(start_epoch,args.num_epochs):
 
-            #convert images to tensors and send to gpu
-            seg = seg.type(torch.FloatTensor)
-            nnseg = nnseg.type(torch.FloatTensor)
-            img = Variable(img.to(device))
-            att = Variable(att.to(device))
-            rnd_att = Variable(rnd_att.to(device))
-            seg = Variable(seg.to(device))
-            nnseg = Variable(nnseg.to(device))
-            cat = Variable(cat.to(device))
-            Z = init_z_foreach_layout(cat, bs)
+            avg_D_real_loss = 0
+            avg_D_real_m_loss = 0
+            avg_D_real_m2_loss = 0
+            avg_D_fake_loss = 0
+            avg_G_fake_loss = 0
+            avg_percept_loss = 0
+            for i ,(img,att,seg,cat,nnseg) in enumerate(train_loader):
+                profiler.step()
+                bs = img.size(0)
+                rnd_batch_num = np.random.randint(len(train_data),size=bs)
+                rnd_att_list = [train_data[i][1] for i in rnd_batch_num]
+                rnd_att_np = np.asarray(rnd_att_list)
+                rnd_att = torch.from_numpy(rnd_att_np).float()
 
-            img_norm = img * 2 - 1
-            img_G = img_norm
+                #convert images to tensors and send to gpu
+                seg = seg.type(torch.FloatTensor)
+                nnseg = nnseg.type(torch.FloatTensor)
+                img = Variable(img.to(device))
+                att = Variable(att.to(device))
+                rnd_att = Variable(rnd_att.to(device))
+                seg = Variable(seg.to(device))
+                nnseg = Variable(nnseg.to(device))
+                cat = Variable(cat.to(device))
+                Z = init_z_foreach_layout(cat, bs)
 
-            requires_grad(G, False)
-            requires_grad(D, True)
-            D.zero_grad()
+                img_norm = img * 2 - 1
+                img_G = img_norm
 
-            #calculate loss for real image with segmask and attributes
-            real_logit = D(img_norm,seg,att)
-            real_loss = criterionGan(real_logit,True)
-            avg_D_real_loss+=real_loss.data.item()
-            real_loss.backward()
+                requires_grad(G, False)
+                requires_grad(D, True)
+                D.zero_grad()
 
-            #calculate loss for real image with mismatch segmask and attributes
+                #calculate loss for real image with segmask and attributes
+                real_logit = D(img_norm,seg,att)
+                real_loss = criterionGan(real_logit,True)
+                avg_D_real_loss+=real_loss.data.item()
+                real_loss.backward()
 
-            real_m_logit = D(img_norm,nnseg,att)
-            real_m_loss = 0.25 * criterionGan(real_m_logit,False)
-            avg_D_real_m_loss += real_m_loss.data.item()
-            real_m_loss.backward()
+                #calculate loss for real image with mismatch segmask and attributes
 
-            # real image with mismatching attribute and accurate segmask
-            real_m2_logit = D(img_norm, seg, rnd_att)
-            real_m2_loss = 0.25 * criterionGan(real_m2_logit, False)
-            avg_D_real_m2_loss += real_m2_loss.data.item()
-            real_m2_loss.backward()
+                real_m_logit = D(img_norm,nnseg,att)
+                real_m_loss = 0.25 * criterionGan(real_m_logit,False)
+                avg_D_real_m_loss += real_m_loss.data.item()
+                real_m_loss.backward()
 
-
-            #now for the majedaar stuff generating image
-
-                #prepare nn for fake images
-
-            fake = G(Z, seg, att)
-            fake_logit = D(fake.detach(), seg, att)
-            fake_loss = 0.5 * criterionGan(fake_logit, False)
-            avg_D_fake_loss += fake_loss.data.item()
-            fake_loss.backward()
-#prep to train generator
-            d_optimizer.step()
-
-            requires_grad(G, True)
-            requires_grad(D, False)
-            G.zero_grad()
-
-            fake = G(Z, seg, att)
-            fake_logit = D(fake, seg, att)
-            fake_loss = criterionGan(fake_logit, True)
-            # vgg_loss =10 * criterionVGG(img_G, fake)
-            percept_loss = 10 * criterionPercept(img_G, fake)
-            avg_G_fake_loss += fake_loss.data.item()
-            # avg_vgg_loss += vgg_loss.data.item()
-            avg_percept_loss += percept_loss.data.item()
-            G_loss = fake_loss + percept_loss
-            G_loss.backward()
-            g_optimizer.step()
-
-            if i % 10 == 0:
-                loop.run_until_complete(log_images())
-                log_file = open("log.txt", "w")
-                log_file.write(str(epoch) + " " + str(i))
-                log_file.close()
-        if (epoch + 1) % 10 == 0:
-            torch.save(G.state_dict(), args.save_filename + "_G_" + str(epoch))
-            torch.save(D.state_dict(), args.save_filename + "_D_" + str(epoch))
-            torch.save(G.state_dict(), args.save_filename + "_G_latest" )
-            torch.save(D.state_dict(), args.save_filename + "_D_latest" )
+                # real image with mismatching attribute and accurate segmask
+                real_m2_logit = D(img_norm, seg, rnd_att)
+                real_m2_loss = 0.25 * criterionGan(real_m2_logit, False)
+                avg_D_real_m2_loss += real_m2_loss.data.item()
+                real_m2_loss.backward()
 
 
-        loop.close()
+                #now for the majedaar stuff generating image
+
+                    #prepare nn for fake images
+
+                fake = G(Z, seg, att)
+                fake_logit = D(fake.detach(), seg, att)
+                fake_loss = 0.5 * criterionGan(fake_logit, False)
+                avg_D_fake_loss += fake_loss.data.item()
+                fake_loss.backward()
+    #prep to train generator
+                d_optimizer.step()
+
+                requires_grad(G, True)
+                requires_grad(D, False)
+                G.zero_grad()
+
+                fake = G(Z, seg, att)
+                fake_logit = D(fake, seg, att)
+                fake_loss = criterionGan(fake_logit, True)
+                # vgg_loss =10 * criterionVGG(img_G, fake)
+                percept_loss = 10 * criterionPercept(img_G, fake)
+                avg_G_fake_loss += fake_loss.data.item()
+                # avg_vgg_loss += vgg_loss.data.item()
+                avg_percept_loss += percept_loss.data.item()
+                G_loss = fake_loss + percept_loss
+                G_loss.backward()
+                g_optimizer.step()
+
+                if i % 10 == 0:
+                    loop.run_until_complete(log_images())
+                    log_file = open("log.txt", "w")
+                    log_file.write(str(epoch) + " " + str(i))
+                    log_file.close()
+            if (epoch + 1) % 10 == 0:
+                torch.save(G.state_dict(), args.save_filename + "_G_" + str(epoch))
+                torch.save(D.state_dict(), args.save_filename + "_D_" + str(epoch))
+                torch.save(G.state_dict(), args.save_filename + "_G_latest" )
+                torch.save(D.state_dict(), args.save_filename + "_D_latest" )
+
+
+            loop.close()
 
 
 
