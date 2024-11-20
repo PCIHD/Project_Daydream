@@ -65,10 +65,10 @@ args.weights_decoder = os.path.join(args.scene_parsing_model_path, 'decoder' + a
 if  torch.cuda.is_available():
     print('Gpu avialable')
     device='cuda'
-if torch.backends.mps.is_available():
+elif torch.backends.mps.is_available():
     device="mps"
 else:
-    print('Gpu not  avialable')
+    print('Gpu not avialable')
     device="cpu"
 
 #randomize seed
