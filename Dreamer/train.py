@@ -17,6 +17,7 @@ from dataloader import SGNDataset
 from torch.autograd import Variable
 from Model import create_model, PerceptualLoss, GANLoss
 from torchvision.utils import save_image
+from torch.profiler import profile, record_function, ProfilerActivity
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--img_root', type=str, required=True,
@@ -165,7 +166,11 @@ if __name__=='__main__':
     if not os.path.isdir('./model'):
         os.mkdir('./model')
     loop = asyncio.get_event_loop()
+    activities = [ProfilerActivity.CPU, ProfilerActivity.CUDA, ProfilerActivity.XPU]
+
     with torch.profiler.profile(
+        activities=activities,
+        profile_memory=True,
             schedule=torch.profiler.schedule(
                 wait=1,
                 warmup=1,
