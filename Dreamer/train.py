@@ -6,6 +6,7 @@ handels training image to image translation training loop
 '''
 import argparse
 import os
+import asyncio
 
 import numpy as np
 import torch
@@ -13,7 +14,7 @@ from torch.utils import data
 import torch
 import random
 from dataloader import SGNDataset
-import torch.autograd.variable as Variable
+from torch.autograd import Variable
 from Model import create_model, PerceptualLoss, GANLoss
 from torchvision.utils import save_image
 
@@ -64,6 +65,8 @@ args.weights_decoder = os.path.join(args.scene_parsing_model_path, 'decoder' + a
 if  torch.cuda.is_available():
     print('Gpu avialable')
     device='cuda'
+if torch.backends.mps.is_available():
+    device="mps"
 else:
     print('Gpu not  avialable')
     device="cpu"
@@ -78,7 +81,7 @@ for str_id in args.gpu_ids.split(','):
     if id >= 0:
         gpu_ids.append(id)
 args.gpu_ids = gpu_ids
-
+args.device = device
 #set gradient calculations
 def requires_grad(model, flag=True):
     for p in model.parameters():
@@ -91,22 +94,36 @@ def init_z_foreach_layout(category_map, batchsize):
 
     ZT = torch.FloatTensor(batchsize, 100, 256, 256)
     ZT.fill_(0.0)
-    ZT = ZT.cuda()
+    ZT = ZT.to(device)
 
     for j in range(numofseg + 1):
 
         mask = category_map.eq(j)
 
         if (mask.any()):
-            z = torch.rand(batchsize, 100, 1, 1).cuda()
+            z = torch.rand(batchsize, 100, 1, 1).to(device)
             z.resize_(batchsize, 100, 1, 1).normal_(0, 1)
             z = z.expand(batchsize, 100, 256, 256)
             mask = mask.unsqueeze(1)
             mask = mask.type(torch.FloatTensor)
-            ZT = ZT.add_(z * mask.cuda())
+            ZT = ZT.add_(z * mask.to(device))
 
     del mask, z, category_map
     return ZT
+
+
+async def log_images():
+    print(
+        'Epoch [%d/%d], Iter [%d/%d], D_real: %.4f, D_misSeg: %.4f, D_misAtt: %.4f, D_fake: %.4f, G_fake: %.4f, Percept: %.4f'
+        % (epoch + 1, args.num_epochs, i + 1, len(train_loader), avg_D_real_loss / (i + 1),
+           avg_D_real_m_loss / (i + 1), avg_D_real_m2_loss / (i + 1), avg_D_fake_loss / (i + 1),
+           avg_G_fake_loss / (i + 1),
+           avg_percept_loss / (i + 1)))
+    save_image((fake.data + 1) * 0.5, './examples/%d_%d_fake.png' % (epoch + 1, i + 1))
+    save_image((img_G.data + 1) * 0.5, './examples/%d_%d_real.png' % (epoch + 1, i + 1))
+    torch.save(G.state_dict(), args.save_filename + "_G_latest")
+    torch.save(D.state_dict(), args.save_filename + "_D_latest")
+
 
 if __name__=='__main__':
     print(args)
@@ -136,7 +153,7 @@ if __name__=='__main__':
 
         G.load_state_dict(model_dict)
         D.load_state_dict(torch.load(args.save_filename+"_D_latest"))
-    criterionGan = GANLoss(use_lsgan=True)
+    criterionGan = GANLoss(use_lsgan=True,device=device)
     criterionFeat = torch.nn.L1Loss()
     criterionPercept =  PerceptualLoss(args)
     G.to(device)
@@ -147,6 +164,7 @@ if __name__=='__main__':
         os.mkdir('./examples')
     if not os.path.isdir('./model'):
         os.mkdir('./model')
+    loop = asyncio.get_event_loop()
     for epoch in range(start_epoch,args.num_epochs):
         avg_D_real_loss = 0
         avg_D_real_m_loss = 0
@@ -164,12 +182,12 @@ if __name__=='__main__':
             #convert images to tensors and send to gpu
             seg = seg.type(torch.FloatTensor)
             nnseg = nnseg.type(torch.FloatTensor)
-            img = Variable(img.cuda())
-            att = Variable(att.cuda())
-            rnd_att = Variable(rnd_att.cuda())
-            seg = Variable(seg.cuda())
-            nnseg = Variable(nnseg.cuda())
-            cat = Variable(cat.cuda())
+            img = Variable(img.to(device))
+            att = Variable(att.to(device))
+            rnd_att = Variable(rnd_att.to(device))
+            seg = Variable(seg.to(device))
+            nnseg = Variable(nnseg.to(device))
+            cat = Variable(cat.to(device))
             Z = init_z_foreach_layout(cat, bs)
 
             img_norm = img * 2 - 1
@@ -228,16 +246,7 @@ if __name__=='__main__':
             g_optimizer.step()
 
             if i % 10 == 0:
-                print(
-                    'Epoch [%d/%d], Iter [%d/%d], D_real: %.4f, D_misSeg: %.4f, D_misAtt: %.4f, D_fake: %.4f, G_fake: %.4f, Percept: %.4f'
-                    % (epoch + 1, args.num_epochs, i + 1, len(train_loader), avg_D_real_loss / (i + 1),
-                       avg_D_real_m_loss / (i + 1), avg_D_real_m2_loss / (i + 1), avg_D_fake_loss / (i + 1),
-                       avg_G_fake_loss / (i + 1),
-                       avg_percept_loss / (i + 1)))
-                save_image((fake.data + 1) * 0.5, './examples/%d_fake.png' % (epoch + 1))
-                save_image((img_G.data + 1) * 0.5, './examples/%d_real.png' % (epoch + 1))
-                torch.save(G.state_dict(), args.save_filename + "_G_latest")
-                torch.save(D.state_dict(), args.save_filename + "_D_latest")
+                loop.run_until_complete(log_images())
                 log_file = open("log.txt", "w")
                 log_file.write(str(epoch) + " " + str(i))
                 log_file.close()
@@ -248,7 +257,7 @@ if __name__=='__main__':
             torch.save(D.state_dict(), args.save_filename + "_D_latest" )
 
 
-
+        loop.close()
 
 
 

@@ -20,7 +20,7 @@ class ModelBuilder():
         elif classname.find('Linear') != -1:
             m.weight.data.normal_(0.0, 0.0001)
 
-    def build_encoder(self, arch='resnet34_dilated8', fc_dim=1024, weights=''):
+    def build_encoder(self, arch='resnet34_dilated8', fc_dim=1024, weights='',device='cpu'):
 
         if arch == 'resnet34_dilated8':
             original_resnet = torchvision.models.resnet34(pretrained=True)
@@ -34,11 +34,13 @@ class ModelBuilder():
         # net_encoder.apply(self.weights_init)
         if len(weights) > 0:
             print('Loading weights for net_encoder')
-            net_encoder.load_state_dict(torch.load(weights))
+            net_encoder.load_state_dict(torch.load(weights, map_location=torch.device(device),weights_only=True))
+            net_encoder.to(device)
+
         return net_encoder
 
     def build_decoder(self, arch='c1bilinear', fc_dim=1024, num_class=150,
-                      segSize=384, weights='', use_softmax=False):
+                      segSize=384, weights='', use_softmax=False,device='cpu'):
         if arch == 'c1bilinear':
             net_decoder = C1Bilinear(num_class=num_class,
                                      fc_dim=fc_dim,
@@ -55,7 +57,7 @@ class ModelBuilder():
         net_decoder.apply(self.weights_init)
         if len(weights) > 0:
             print('Loading weights for net_decoder')
-            net_decoder.load_state_dict(torch.load(weights))
+            net_decoder.load_state_dict(torch.load(weights,map_location=torch.device(device)))
         return net_decoder
 
 

@@ -14,6 +14,7 @@ class SGNGenerator(nn.Module):
     def __init__(self,opt, is_test=False):
         super(SGNGenerator, self).__init__()
         self.ngpu = len(opt.gpu_ids)
+        self.device = opt.device
 
         self.encoder = nn.Sequential(
             nn.ReflectionPad2d(3),
@@ -64,9 +65,9 @@ class SGNGenerator(nn.Module):
 
     def forward(self, z, seg, att):
 
-        seg = seg.type(torch.cuda.FloatTensor)
+        seg = seg.type(torch.FloatTensor).to(self.device)
         z_seg = torch.cat((z, seg), 1)
-        if isinstance(z_seg.data, torch.cuda.FloatTensor) and self.ngpu > 1:
+        if isinstance(z_seg.data, torch.FloatTensor) and self.ngpu > 1:
             seg_feat = nn.parallel.data_parallel(self.encoder, z_seg, range(self.ngpu))
         else:
             seg_feat = self.encoder(z_seg)
@@ -77,7 +78,7 @@ class SGNGenerator(nn.Module):
         out4 = self.res_block4(out3, att)
         out5 = self.res_block5(out4, att)
 
-        if isinstance(out5.data, torch.cuda.FloatTensor) and self.ngpu > 1:
+        if isinstance(out5.data, torch.FloatTensor) and self.ngpu > 1:
             output = nn.parallel.data_parallel(self.decoder, out5, range(self.ngpu))
         else:
             output = self.decoder(out5)
@@ -145,31 +146,33 @@ class PerceptualLoss(nn.Module):
         super(PerceptualLoss,self).__init__()
         self.criterion = nn.L1Loss()
         builder = ModelBuilder()
-        net_encoder = builder.build_encoder(weights=args.weights_encoder).cuda()
+        net_encoder = builder.build_encoder(weights=args.weights_encoder,device=args.device)
         self.net_encoder=net_encoder.eval()
         self.m = nn.AvgPool2d(3,stride=2,padding=1)
         for p in self.net_encoder.parameters():
             p.requires_grad = False
 
     def forward(self,real,fake):
-        xc = Variable(real.data.clone(),volatile=True)
-        f_fake = self.net_encoder(self.m(fake))
-        f_real = self.net_encoder(self.m(xc))
-        f_xc_c = Variable(f_real.data,requires_grad=False)
-        loss = self.criterion(f_fake,f_xc_c)
-        return loss
+        with torch.no_grad():
+            xc = Variable(real.data.clone())
+            f_fake = self.net_encoder(self.m(fake))
+            f_real = self.net_encoder(self.m(xc))
+            f_xc_c = Variable(f_real.data,requires_grad=False)
+            loss = self.criterion(f_fake,f_xc_c)
+            return loss
 
 
 
 #gan loss
 class GANLoss(nn.Module):
     def __init__(self, use_lsgan=True, target_real_label=1.0, target_fake_label=0.0,
-                 tensor=torch.cuda.FloatTensor):
+                 tensor=torch.FloatTensor,device='cpu'):
         super(GANLoss, self).__init__()
         self.real_label = target_real_label
         self.fake_label = target_fake_label
         self.real_label_var = None
         self.fake_label_var = None
+        self.device = device
         self.Tensor = tensor
         if use_lsgan:
             self.loss = nn.MSELoss()
@@ -182,14 +185,14 @@ class GANLoss(nn.Module):
             create_label = ((self.real_label_var is None) or
                             (self.real_label_var.numel() != input.numel()))
             if create_label:
-                real_tensor = self.Tensor(input.size()).fill_(self.real_label)
+                real_tensor = self.Tensor(input.size()).fill_(self.real_label).to(self.device)
                 self.real_label_var = Variable(real_tensor, requires_grad=False)
             target_tensor = self.real_label_var
         else:
             create_label = ((self.fake_label_var is None) or
                             (self.fake_label_var.numel() != input.numel()))
             if create_label:
-                fake_tensor = self.Tensor(input.size()).fill_(self.fake_label)
+                fake_tensor = self.Tensor(input.size()).fill_(self.fake_label).to(self.device)
                 self.fake_label_var = Variable(fake_tensor, requires_grad=False)
             target_tensor = self.fake_label_var
         return target_tensor
