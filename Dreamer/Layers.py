@@ -6,6 +6,8 @@ from torch import nn
 from torch.nn import functional as F
 import numpy as np
 
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
 
 class DiscriminatorFeature(nn.Module):
     def __init__(self, input_nc, opt, ndf=64, n_layers=3, norm_layer=nn.InstanceNorm2d, use_sigmoid=False,

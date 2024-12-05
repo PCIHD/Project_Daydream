@@ -3,7 +3,6 @@ todo implement model architecture here , Discriminator , generator
 '''
 import torch
 from torch import nn
-from torch.autograd import Variable
 
 #Generator class
 from Layers import init_weights, SGNNLayerDiscriminator, SGNResidualBlock
@@ -154,10 +153,10 @@ class PerceptualLoss(nn.Module):
 
     def forward(self,real,fake):
         with torch.no_grad():
-            xc = Variable(real.data.clone())
+            xc = real.data.clone()
             f_fake = self.net_encoder(self.m(fake))
             f_real = self.net_encoder(self.m(xc))
-            f_xc_c = Variable(f_real.data,requires_grad=False)
+            f_xc_c = f_real.clone()
             loss = self.criterion(f_fake,f_xc_c)
             return loss
 
@@ -166,14 +165,13 @@ class PerceptualLoss(nn.Module):
 #gan loss
 class GANLoss(nn.Module):
     def __init__(self, use_lsgan=True, target_real_label=1.0, target_fake_label=0.0,
-                 tensor=torch.FloatTensor,device='cpu'):
+                 device='cpu'):
         super(GANLoss, self).__init__()
         self.real_label = target_real_label
         self.fake_label = target_fake_label
         self.real_label_var = None
         self.fake_label_var = None
         self.device = device
-        self.Tensor = tensor
         if use_lsgan:
             self.loss = nn.MSELoss()
         else:
@@ -185,15 +183,15 @@ class GANLoss(nn.Module):
             create_label = ((self.real_label_var is None) or
                             (self.real_label_var.numel() != input.numel()))
             if create_label:
-                real_tensor = self.Tensor(input.size()).fill_(self.real_label).to(self.device)
-                self.real_label_var = Variable(real_tensor, requires_grad=False)
+                real_tensor =  torch.ones(input.size(),device=self.device)
+                self.real_label_var = real_tensor
             target_tensor = self.real_label_var
         else:
             create_label = ((self.fake_label_var is None) or
                             (self.fake_label_var.numel() != input.numel()))
             if create_label:
-                fake_tensor = self.Tensor(input.size()).fill_(self.fake_label).to(self.device)
-                self.fake_label_var = Variable(fake_tensor, requires_grad=False)
+                fake_tensor = torch.zeros(input.size(),device=self.device)
+                self.fake_label_var =fake_tensor
             target_tensor = self.fake_label_var
         return target_tensor
 

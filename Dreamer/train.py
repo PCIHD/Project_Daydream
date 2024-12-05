@@ -14,10 +14,13 @@ from torch.utils import data
 import torch
 import random
 from dataloader import SGNDataset
-from torch.autograd import Variable
+
 from Model import create_model, PerceptualLoss, GANLoss
 from torchvision.utils import save_image
 from torch.profiler import profile, record_function, ProfilerActivity
+torch.backends.cudnn.benchmark = True
+torch.backends.cudnn.allow_tf32 = True
+torch.backends.cuda.matmul.allow_tf32 = True
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--img_root', type=str, required=True,
@@ -65,12 +68,12 @@ args.weights_decoder = os.path.join(args.scene_parsing_model_path, 'decoder' + a
 
 if  torch.cuda.is_available():
     print('Gpu avialable')
-    device='cuda'
+    device=torch.device("cuda")
 elif torch.backends.mps.is_available():
-    device="mps"
+    device=torch.device("mps")
 else:
     print('Gpu not avialable')
-    device="cpu"
+    device=torch.device("cpu")
 
 #randomize seed
 if args.manualSeed is None:
@@ -83,6 +86,7 @@ for str_id in args.gpu_ids.split(','):
         gpu_ids.append(id)
 args.gpu_ids = gpu_ids
 args.device = device
+print(f"Using Device {args.device}")
 #set gradient calculations
 def requires_grad(model, flag=True):
     for p in model.parameters():
@@ -120,8 +124,10 @@ async def log_images():
            avg_D_real_m_loss / (i + 1), avg_D_real_m2_loss / (i + 1), avg_D_fake_loss / (i + 1),
            avg_G_fake_loss / (i + 1),
            avg_percept_loss / (i + 1)))
-    save_image((fake.data + 1) * 0.5, './examples/%d_%d_fake.png' % (epoch + 1, i + 1))
-    save_image((img_G.data + 1) * 0.5, './examples/%d_%d_real.png' % (epoch + 1, i + 1))
+    # save_image((fake.data + 1) * 0.5, './examples/%d_%d_fake.png' % (epoch + 1, i + 1))
+    # save_image((img_G.data + 1) * 0.5, './examples/%d_%d_real.png' % (epoch + 1, i + 1))
+    combo = torch.concat([fake.data,img_G.data])
+    save_image((combo + 1) * 0.5,'./examples/%d_%d_combo.png' % (epoch + 1, i + 1))
     torch.save(G.state_dict(), args.save_filename + "_G_latest")
     torch.save(D.state_dict(), args.save_filename + "_D_latest")
 
@@ -131,19 +137,19 @@ if __name__=='__main__':
     print('loading Dataset')
     train_data = SGNDataset(args)
     train_loader = data.DataLoader(train_data,batch_size=args.batch_size,
-                                   shuffle=True,num_workers = args.num_threads)
+                                   shuffle=True,num_workers = args.num_threads,pin_memory=True,prefetch_factor=3)
     print('Connecting nodes , fabicrating network')
     if(not args.r):
         G, D = create_model(args)
     else:
-        G,D = torch.load( args.save_filename + "_G_latest" ) , torch.save( args.save_filename + "_D_latest" )
+        G,D = torch.load( args.save_filename + "_G_latest",weights_only=True ) , torch.load( args.save_filename + "_D_latest" ,weights_only=True)
     start_epoch = 0
     if(args.resume_train):
         rf = open('log.txt','r')
         log = rf.readline()
         log = log.split(' ')
         start_epoch = int(log[0])
-        print('loading last trained step')
+        print(f'loading last trained step {start_epoch}')
         pretrained_dict = torch.load(args.save_filename + "_G_latest")
         model_dict = G.state_dict()
         for k,v in pretrained_dict.items():
@@ -157,8 +163,8 @@ if __name__=='__main__':
     criterionGan = GANLoss(use_lsgan=True,device=device)
     criterionFeat = torch.nn.L1Loss()
     criterionPercept =  PerceptualLoss(args)
-    G.to(device)
-    D.to(device)
+    torch.compile(G.to(device))
+    torch.compile(D.to(device))
     g_optimizer = torch.optim.Adam(G.parameters(),lr=args.learning_rate,betas = (args.momentum,0.999))
     d_optimizer = torch.optim.Adam(D.parameters(), lr=args.learning_rate, betas=(args.momentum, 0.999))
     if not os.path.isdir('./examples'):
@@ -168,17 +174,14 @@ if __name__=='__main__':
     loop = asyncio.get_event_loop()
     activities = [ProfilerActivity.CPU, ProfilerActivity.CUDA, ProfilerActivity.XPU]
 
-    with torch.profiler.profile(
-        activities=activities,
-        profile_memory=True,
-            schedule=torch.profiler.schedule(
-                wait=1,
-                warmup=1,
-                active=3,
-                repeat=1),
-            on_trace_ready=torch.profiler.tensorboard_trace_handler("./tensorboard_logs"),
-            with_stack=True,record_shapes=True,
-    ) as profiler:
+    with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU,
+                                                          torch.profiler.ProfilerActivity.CUDA],
+                                                          schedule=torch.profiler.schedule(skip_first=0,wait=0,warmup=1,active=10,repeat=1),
+                    on_trace_ready=torch.profiler.tensorboard_trace_handler(dir_name="./log/gan/",worker_name="pc"),
+                    record_shapes=True,
+                    profile_memory=False,
+                    with_stack=True) as profiler:
+
         for epoch in range(start_epoch,args.num_epochs):
 
             avg_D_real_loss = 0
@@ -188,7 +191,7 @@ if __name__=='__main__':
             avg_G_fake_loss = 0
             avg_percept_loss = 0
             for i ,(img,att,seg,cat,nnseg) in enumerate(train_loader):
-                profiler.step()
+
                 bs = img.size(0)
                 rnd_batch_num = np.random.randint(len(train_data),size=bs)
                 rnd_att_list = [train_data[i][1] for i in rnd_batch_num]
@@ -198,12 +201,12 @@ if __name__=='__main__':
                 #convert images to tensors and send to gpu
                 seg = seg.type(torch.FloatTensor)
                 nnseg = nnseg.type(torch.FloatTensor)
-                img = Variable(img.to(device))
-                att = Variable(att.to(device))
-                rnd_att = Variable(rnd_att.to(device))
-                seg = Variable(seg.to(device))
-                nnseg = Variable(nnseg.to(device))
-                cat = Variable(cat.to(device))
+                img = img.to(device)
+                att = att.to(device)
+                rnd_att = rnd_att.to(device)
+                seg = seg.to(device)
+                nnseg = nnseg.to(device)
+                cat = cat.to(device)
                 Z = init_z_foreach_layout(cat, bs)
 
                 img_norm = img * 2 - 1
@@ -260,7 +263,7 @@ if __name__=='__main__':
                 G_loss = fake_loss + percept_loss
                 G_loss.backward()
                 g_optimizer.step()
-
+                profiler.step()
                 if i % 10 == 0:
                     loop.run_until_complete(log_images())
                     log_file = open("log.txt", "w")
@@ -273,7 +276,7 @@ if __name__=='__main__':
                 torch.save(D.state_dict(), args.save_filename + "_D_latest" )
 
 
-            loop.close()
+    loop.close()
 
 
 
