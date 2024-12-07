@@ -33,7 +33,7 @@ parser.add_argument('--num_epochs', type=int, default=100,
                     help='number of epochs (default: 100)')
 parser.add_argument('--batch_size', type=int, default=32,
                     help='batch size (default: 32)')
-parser.add_argument('--learning_rate', type=float, default=0.0002,
+parser.add_argument('--learning_rate', type=float, default=0.0008,
                     help='learning rate (dafault: 0.0002)')
 parser.add_argument('--lr_decay', type=float, default=0.5,
                     help='learning rate decay (dafault: 0.5)')
@@ -118,12 +118,6 @@ def init_z_foreach_layout(category_map, batchsize):
 
 
 async def log_images():
-    print(
-        'Epoch [%d/%d], Iter [%d/%d], D_real: %.4f, D_misSeg: %.4f, D_misAtt: %.4f, D_fake: %.4f, G_fake: %.4f, Percept: %.4f'
-        % (epoch + 1, args.num_epochs, i + 1, len(train_loader), avg_D_real_loss / (i + 1),
-           avg_D_real_m_loss / (i + 1), avg_D_real_m2_loss / (i + 1), avg_D_fake_loss / (i + 1),
-           avg_G_fake_loss / (i + 1),
-           avg_percept_loss / (i + 1)))
     # save_image((fake.data + 1) * 0.5, './examples/%d_%d_fake.png' % (epoch + 1, i + 1))
     # save_image((img_G.data + 1) * 0.5, './examples/%d_%d_real.png' % (epoch + 1, i + 1))
     combo = torch.concat([fake.data,img_G.data])
@@ -167,6 +161,9 @@ if __name__=='__main__':
     torch.compile(D.to(device))
     g_optimizer = torch.optim.Adam(G.parameters(),lr=args.learning_rate,betas = (args.momentum,0.999))
     d_optimizer = torch.optim.Adam(D.parameters(), lr=args.learning_rate, betas=(args.momentum, 0.999))
+    g_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(g_optimizer, T_max=50)
+    d_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(d_optimizer, T_max=50)
+
     if not os.path.isdir('./examples'):
         os.mkdir('./examples')
     if not os.path.isdir('./model'):
@@ -247,7 +244,7 @@ if __name__=='__main__':
                 fake_loss.backward()
     #prep to train generator
                 d_optimizer.step()
-
+                D_loss = real_loss + real_m_loss + real_m2_loss + fake_loss
                 requires_grad(G, True)
                 requires_grad(D, False)
                 G.zero_grad()
@@ -263,8 +260,18 @@ if __name__=='__main__':
                 G_loss = fake_loss + percept_loss
                 G_loss.backward()
                 g_optimizer.step()
-                profiler.step()
+                g_scheduler.step()
+                d_scheduler.step()
+                current_lr_g = g_optimizer.param_groups[0]['lr']
+                current_lr_d = d_optimizer.param_groups[0]['lr']
                 if i % 10 == 0:
+                    print(
+                        'Epoch [%d/%d], Iter [%d/%d], LR_G: %.6f, LR_D: %.6f, '
+                        'D_real: %.4f, D_misSeg: %.4f, D_misAtt: %.4f, D_fake: %.4f, G_fake: %.4f, Percept: %.4f'
+                        % (epoch + 1, args.num_epochs, i + 1, len(train_loader), current_lr_g, current_lr_d,
+                           avg_D_real_loss / (i + 1), avg_D_real_m_loss / (i + 1), avg_D_real_m2_loss / (i + 1),
+                           avg_D_fake_loss / (i + 1), avg_G_fake_loss / (i + 1), avg_percept_loss / (i + 1))
+                    )
                     loop.run_until_complete(log_images())
                     log_file = open("log.txt", "w")
                     log_file.write(str(epoch) + " " + str(i))
